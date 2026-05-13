@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Futebol de Desafios</title>
+
+<style>
+body {
+  margin: 0;
+  background: #1c1c1c;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+
+h1 {
+  margin: 10px;
+}
+
+#hud {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-bottom: 10px;
+  font-size: 20px;
+}
+
+canvas {
+  background: #2e8b57;
+  border: 4px solid white;
+  border-radius: 10px;
+}
+
+#mission {
+  margin-top: 10px;
+  color: #ffe066;
+  font-size: 22px;
+}
+
+#controls {
+  margin-top: 10px;
+  color: #ddd;
+}
+</style>
+</head>
+<body>
+
+<h1>⚽ Futebol de Desafios ⚽</h1>
+
+<div id="hud">
+  <div>🔵 Seus Pontos: <span id="score">0</span></div>
+  <div>🔴 Pontos do Adversário: <span id="enemyScore">0</span></div>
+  <div>⏱️ Tempo: <span id="timer">30</span>s</div>
+</div>
+
+<canvas id="game" width="1200" height="700"></canvas>
+
+<div id="mission"></div>
+
+<div id="controls">
+  WASD ou SETAS = mover | F = passe | G = chute
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const scoreEl = document.getElementById('score');
+const enemyScoreEl = document.getElementById('enemyScore');
+const timerEl = document.getElementById('timer');
+const missionEl = document.getElementById('mission');
+
+let score = 0;
+let enemyScore = 0;
+let timer = 30;
+let passes = 0;
+
+const missions = [
+  {
+    text: '⚽ Faça um gol em menos de 30 segundos!',
+    check: () => timer > 0
+  },
+  {
+    text: '🤝 Faça 2 passes antes do gol!',
+    check: () => passes >= 2
+  },
+  {
+    text: '🚀 Faça um gol de longe!',
+    check: () => player.x < 500
+  },
+  {
+    text: '🎯 Faça um gol sem passes!',
+    check: () => passes === 0
+  }
+];
+
+let currentMission = 0;
+missionEl.innerText = missions[currentMission].text;
+
+const player = {
+  x: 120,
+  y: 350,
+  radius: 18,
+  color: 'blue',
+  speed: 5
+};
+
+const teammates = [
+  { x: 350, y: 150, radius: 15, color: 'cyan' },
+  { x: 500, y: 550, radius: 15, color: 'cyan' },
+  { x: 650, y: 350, radius: 15, color: 'cyan' }
+];
+
+const enemies = [
+  { x: 850, y: 120, radius: 18, color: 'red', speed: 3 },
+  { x: 950, y: 250, radius: 18, color: 'red', speed: 3.2 },
+  { x: 900, y: 450, radius: 18, color: 'red', speed: 3 },
+  { x: 1050, y: 600, radius: 18, color: 'red', speed: 3.3 }
+];
+
+const ball = {
+  x: player.x + 25,
+  y: player.y,
+  radius: 10,
+  dx: 0,
+  dy: 0,
+  owner: 'player'
+};
+
+const goal = {
+  x: 1130,
+  y: 250,
+  width: 40,
+  height: 180
+};
+
+const enemyGoal = {
+  x: 30,
+  y: 250,
+  width: 40,
+  height: 180
+};
+
+const keys = {};
+
+window.addEventListener('keydown', (e) => {
+  keys[e.key.toLowerCase()] = true;
+
+  if (e.key.toLowerCase() === 'f') {
+    passBall();
+  }
+
+  if (e.key.toLowerCase() === 'g') {
+    shootBall();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+function drawField() {
+  ctx.fillStyle = '#2e8b57';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(canvas.width / 2, canvas.height / 2, 80, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeRect(goal.x - 100, goal.y - 50, 100, goal.height + 100);
+  ctx.strokeRect(enemyGoal.x, enemyGoal.y - 50, 100, enemyGoal.height + 100);
+
+  ctx.fillStyle = 'white';
+  ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+  ctx.fillRect(enemyGoal.x, enemyGoal.y, enemyGoal.width, enemyGoal.height);
+}
+
+function drawCircle(obj) {
+  ctx.beginPath();
+  ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI * 2);
+  ctx.fillStyle = obj.color;
+  ctx.fill();
+  ctx.closePath();
+}
+
+function drawBall() {
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+  ctx.fillStyle = 'white';
+  ctx.fill();
+  ctx.strokeStyle = 'black';
+  ctx.stroke();
+  ctx.closePath();
+}
+
+function movePlayer() {
+  if (keys['w'] || keys['arrowup']) player.y -= player.speed;
+  if (keys['s'] || keys['arrowdown']) player.y += player.speed;
+  if (keys['a'] || keys['arrowleft']) player.x -= player.speed;
+  if (keys['d'] || keys['arrowright']) player.x += player.speed;
+
+  player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+  player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+
+  if (ball.owner === 'player') {
+    ball.x = player.x + 22;
+    ball.y = player.y;
+  }
+}
+
+function moveEnemies() {
+  enemies.forEach((enemy, index) => {
+
+    let targetX = ball.x;
+    let targetY = ball.y;
+
+    // Formação inteligente
+    const formationX = 750 + (index * 90);
+    const formationY = 160 + (index * 130);
+
+    // Se o inimigo estiver com a bola
+    if (ball.owner === index) {
+
+      targetX = enemyGoal.x;
+      targetY = enemyGoal.y + enemyGoal.height / 2;
+
+      // Bola acompanha o inimigo
+      ball.x = enemy.x - 20;
+      ball.y = enemy.y;
+
+    } else {
+
+      // Descobre o inimigo mais próximo da bola
+      let closestEnemy = enemies[0];
+      let closestDist = Infinity;
+
+      enemies.forEach(e => {
+        const d = Math.hypot(ball.x - e.x, ball.y - e.y);
+
+        if (d < closestDist) {
+          closestDist = d;
+          closestEnemy = e;
+        }
+      });
+
+      // Apenas o mais próximo pressiona
+      if (enemy === closestEnemy) {
+
+        if (ball.owner === 'player') {
+          targetX = player.x + 40;
+          targetY = player.y;
+        } else {
+          targetX = ball.x;
+          targetY = ball.y;
+        }
+
+      } else {
+
+        // Outros marcam espaço
+        targetX =
+          formationX + Math.sin(Date.now() * 0.001 + index) * 40;
+
+        targetY =
+          formationY + Math.cos(Date.now() * 0.0015 + index) * 40;
+      }
+    }
+
+    // Movimento
+    const angle = Math.atan2(
+      targetY - enemy.y,
+      targetX - enemy.x
+    );
+
+    enemy.x += Math.cos(angle) * enemy.speed;
+    enemy.y += Math.sin(angle) * enemy.speed;
+
+    // Evita ficar grudado
+    enemies.forEach(other => {
+      if (enemy !== other) {
+
+        const dist = Math.hypot(
+          enemy.x - other.x,
+          enemy.y - other.y
+        );
+
+        if (dist < 45) {
+          enemy.x += (enemy.x - other.x) * 0.04;
+          enemy.y += (enemy.y - other.y) * 0.04;
+        }
+      }
+    });
+
+    // Roubo da bola
+    const distBall = Math.hypot(
+      ball.x - enemy.x,
+      ball.y - enemy.y
+    );
+
+    if (
+      distBall < enemy.radius + ball.radius &&
+      ball.owner === 'player'
+    ) {
+      ball.owner = index;
+    }
+
+    // Jogador recupera a bola
+    const distPlayerEnemy = Math.hypot(
+      player.x - enemy.x,
+      player.y - enemy.y
+    );
+
+    if (
+      distPlayerEnemy < player.radius + enemy.radius &&
+      ball.owner === index
+    ) {
+      ball.owner = 'player';
+    }
+
+    // Chute do inimigo
+    if (ball.owner === index) {
+
+      const distToGoal = Math.hypot(
+        enemy.x - enemyGoal.x,
+        enemy.y - (enemyGoal.y + enemyGoal.height / 2)
+      );
+
+      // Chuta perto do gol
+      if (distToGoal < 220) {
+
+        ball.owner = null;
+
+        const angleGoal = Math.atan2(
+          enemyGoal.y + enemyGoal.height / 2 - enemy.y,
+          enemyGoal.x - enemy.x
+        );
+
+        ball.dx = Math.cos(angleGoal) * 12;
+        ball.dy = Math.sin(angleGoal) * 12;
+      }
+    }
+
+  });
+}
+
+function moveTeammates() {
+  teammates.forEach((mate, index) => {
+    const targetX = 350 + index * 180 + Math.sin(Date.now() * 0.001 + index) * 100;
+    const targetY = 200 + index * 120 + Math.cos(Date.now() * 0.0015 + index) * 80;
+
+    mate.x += (targetX - mate.x) * 0.02;
+    mate.y += (targetY - mate.y) * 0.02;
+  });
+}
+
+function passBall() {
+  if (ball.owner !== 'player') return;
+
+  let nearestMate = null;
+  let nearestDist = Infinity;
+
+  teammates.forEach(mate => {
+    const dist = Math.hypot(player.x - mate.x, player.y - mate.y);
+
+    if (dist < nearestDist && dist < 350) {
+      nearestDist = dist;
+      nearestMate = mate;
+    }
+  });
+
+  if (nearestMate) {
+    ball.owner = null;
+
+    const angle = Math.atan2(
+      nearestMate.y - ball.y,
+      nearestMate.x - ball.x
+    );
+
+    ball.dx = Math.cos(angle) * 9;
+    ball.dy = Math.sin(angle) * 9;
+
+    passes++;
+  }
+}
+
+function shootBall() {
+  if (ball.owner !== 'player') return;
+
+  ball.owner = null;
+
+  const angleGoal = Math.atan2(
+    goal.y + goal.height / 2 - player.y,
+    goal.x - player.x
+  );
+
+  ball.dx = Math.cos(angleGoal) * 12;
+  ball.dy = Math.sin(angleGoal) * 12;
+}
+
+function updateBall() {
+  if (ball.owner === 'player') return;
+
+  if (typeof ball.owner === 'number') return;
+
+  ball.x += ball.dx;
+  ball.y += ball.dy;
+
+  ball.dx *= 0.99;
+  ball.dy *= 0.99;
+
+  // Jogador pega bola livre
+  const distPlayerBall = Math.hypot(player.x - ball.x, player.y - ball.y);
+
+  if (
+    distPlayerBall < player.radius + ball.radius &&
+    ball.owner === null
+  ) {
+    ball.owner = 'player';
+    ball.dx = 0;
+    ball.dy = 0;
+  }
+
+  // Inimigos pegam bola livre
+  enemies.forEach((enemy, index) => {
+    const distEnemyBall = Math.hypot(enemy.x - ball.x, enemy.y - ball.y);
+
+    if (
+      distEnemyBall < enemy.radius + ball.radius &&
+      ball.owner === null
+    ) {
+      ball.owner = index;
+      ball.dx = 0;
+      ball.dy = 0;
+    }
+  });
+  if (ball.owner === 'player') return;
+
+  if (typeof ball.owner === 'number') return;
+
+  ball.x += ball.dx;
+  ball.y += ball.dy;
+
+  ball.dx *= 0.99;
+  ball.dy *= 0.99;
+
+  teammates.forEach(mate => {
+    const dist = Math.hypot(ball.x - mate.x, ball.y - mate.y);
+
+    if (dist < mate.radius + ball.radius) {
+      player.x = mate.x;
+      player.y = mate.y;
+      ball.owner = 'player';
+    }
+  });
+
+  if (
+    ball.x < 0 ||
+    ball.x > canvas.width ||
+    ball.y < 0 ||
+    ball.y > canvas.height
+  ) {
+    resetBall();
+  }
+
+  if (
+    ball.x > goal.x &&
+    ball.y > goal.y &&
+    ball.y < goal.y + goal.height
+  ) {
+    scoreGoal();
+  }
+
+  if (
+    ball.x < enemyGoal.x + enemyGoal.width &&
+    ball.y > enemyGoal.y &&
+    ball.y < enemyGoal.y + enemyGoal.height
+  ) {
+    enemyScoreGoal();
+  }
+}
+
+function resetBall() {
+  player.x = 120;
+  player.y = 350;
+
+  teammates[0].x = 350;
+  teammates[0].y = 150;
+
+  teammates[1].x = 500;
+  teammates[1].y = 550;
+
+  teammates[2].x = 650;
+  teammates[2].y = 350;
+
+  enemies[0].x = 850;
+  enemies[0].y = 120;
+
+  enemies[1].x = 950;
+  enemies[1].y = 250;
+
+  enemies[2].x = 900;
+  enemies[2].y = 450;
+
+  enemies[3].x = 1050;
+  enemies[3].y = 600;
+
+  ball.x = player.x + 25;
+  ball.y = player.y;
+  ball.dx = 0;
+  ball.dy = 0;
+  ball.owner = 'player';
+}
+
+function enemyScoreGoal() {
+  enemyScore++;
+  enemyScoreEl.innerText = enemyScore;
+
+  alert('🔴 O time vermelho marcou um gol!');
+
+  passes = 0;
+  timer = 30;
+
+  resetBall();
+}
+
+function scoreGoal() {
+  const valid = missions[currentMission].check();
+
+  if (valid) {
+    score += 1;
+    alert('⚽ GOOOL! Missão completada!');
+  } else {
+    alert('❌ Gol feito, mas a missão falhou!');
+  }
+
+  scoreEl.innerText = score;
+
+  currentMission++;
+
+  if (currentMission >= missions.length) {
+    currentMission = 0;
+  }
+
+  missionEl.innerText = missions[currentMission].text;
+
+  passes = 0;
+  timer = 30;
+
+  resetBall();
+}
+
+function updateTimer() {
+  timer--;
+  timerEl.innerText = timer;
+
+  if (timer <= 0) {
+    alert('⏰ Tempo esgotado!');
+    timer = 30;
+    resetBall();
+  }
+}
+
+setInterval(updateTimer, 1000);
+
+function gameLoop() {
+  drawField();
+
+  movePlayer();
+  moveEnemies();
+  moveTeammates();
+  updateBall();
+
+  drawCircle(player);
+  teammates.forEach(drawCircle);
+  enemies.forEach(drawCircle);
+  drawBall();
+
+  requestAnimationFrame(gameLoop);
+}
+
+resetBall();
+gameLoop();
+</script>
+
+</body>
+</html>
